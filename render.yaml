@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: video-analyzer
+    runtime: docker
+    plan: free
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PPLX_API_KEY
+        sync: false
+      - key: NODE_ENV
+        value: production

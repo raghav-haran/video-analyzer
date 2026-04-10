@@ -2,6 +2,34 @@
 
 Break any video into scored, content-ready segments. Paste a Google Drive video link, and the app downloads, transcribes, and analyzes it — producing a table of segments with timestamps, summaries, tags, quality scores, and suggested content formats.
 
+## Deploy
+
+### Railway (recommended)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/video-analyzer?referralCode=garyvee)
+
+1. Click the button above or create a new project on [railway.com](https://railway.com)
+2. Select **Deploy from GitHub repo** and connect this repo
+3. Add environment variables: `ANTHROPIC_API_KEY` and `PPLX_API_KEY`
+4. Railway auto-detects the Dockerfile and deploys
+
+### Render
+
+1. Go to [render.com](https://render.com) → New → Web Service
+2. Connect this GitHub repo
+3. Render auto-detects `render.yaml` and configures everything
+4. Add environment variables: `ANTHROPIC_API_KEY` and `PPLX_API_KEY`
+
+### Docker (any server)
+
+```bash
+docker build -t video-analyzer .
+docker run -p 5000:5000 \
+  -e ANTHROPIC_API_KEY=sk-... \
+  -e PPLX_API_KEY=pplx-... \
+  video-analyzer
+```
+
 ## How it works
 
 1. **Download** — Fetches the video from Google Drive using `gdown`
@@ -40,7 +68,7 @@ Each segment includes:
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude analysis |
 | `PPLX_API_KEY` | Perplexity API key for ElevenLabs Scribe transcription |
 
-## Setup
+## Local setup
 
 ```bash
 # Clone the repo
@@ -87,6 +115,9 @@ video-analyzer/
 │   └── transcribe_audio.py    # Audio transcription helper
 ├── shared/
 │   └── schema.ts              # Zod schemas & DB table definitions
+├── Dockerfile                 # Docker config for deployment
+├── render.yaml                # Render.com config
+├── railway.json               # Railway config
 └── package.json
 ```
 
