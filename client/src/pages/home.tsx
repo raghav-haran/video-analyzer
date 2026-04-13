@@ -30,8 +30,10 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Quote as QuoteIcon,
+  LayoutList,
 } from "lucide-react";
-import type { Segment } from "@shared/schema";
+import type { Segment, Quote } from "@shared/schema";
 
 const FORMAT_COLORS: Record<string, string> = {
   "short-form clip": "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
@@ -81,6 +83,7 @@ interface JobResponse {
   status: string;
   statusMessage?: string;
   segments?: Segment[];
+  quotes?: Quote[];
 }
 
 const STATUS_MESSAGES: Record<string, string> = {
@@ -101,6 +104,7 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<"time" | "score">("time");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [activeTab, setActiveTab] = useState<"segments" | "quotes">("segments");
   const { toast } = useToast();
 
   // Poll for job status
@@ -153,6 +157,7 @@ export default function Home() {
   });
 
   const segments = job?.segments || [];
+  const quotes = job?.quotes || [];
   const isProcessing =
     job && !["complete", "error"].includes(job.status) && jobId !== null;
 
@@ -225,15 +230,23 @@ export default function Home() {
   }, []);
 
   const handleCopyResults = useCallback(() => {
-    const text = filteredSegments
-      .map(
-        (seg) =>
-          `[${seg.start}–${seg.end}] ${seg.shortSummary}\nScore: ${seg.clipQualityScore}/10 | Format: ${seg.suggestedFormat}\n${seg.detailedExplanation}\nTags: ${seg.tags}\n`,
-      )
-      .join("\n");
-    navigator.clipboard.writeText(text);
-    toast({ title: "Copied to clipboard" });
-  }, [filteredSegments, toast]);
+    if (activeTab === "quotes") {
+      const text = quotes
+        .map((q) => `[${q.timestamp}] "${q.quote}"`)
+        .join("\n");
+      navigator.clipboard.writeText(text);
+      toast({ title: `Copied ${quotes.length} quotes to clipboard` });
+    } else {
+      const text = filteredSegments
+        .map(
+          (seg) =>
+            `[${seg.start}–${seg.end}] ${seg.shortSummary}\nScore: ${seg.clipQualityScore}/10 | Format: ${seg.suggestedFormat}\n${seg.detailedExplanation}\nTags: ${seg.tags}\n`,
+        )
+        .join("\n");
+      navigator.clipboard.writeText(text);
+      toast({ title: "Copied to clipboard" });
+    }
+  }, [activeTab, filteredSegments, quotes, toast]);
 
   const handleDownloadCsv = useCallback(() => {
     if (!jobId) return;
@@ -255,6 +268,7 @@ export default function Home() {
     setSortBy("time");
     setSortDir("desc");
     setExpandedRows(new Set());
+    setActiveTab("segments");
   };
 
   return (
@@ -382,22 +396,53 @@ export default function Home() {
         {/* Results */}
         {job?.status === "complete" && segments.length > 0 && (
           <div className="space-y-4">
-            {/* Stats bar */}
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {segments.length} segments
-              </span>
-              <span>·</span>
-              <span>
-                {segments.filter((s) => s.clipQualityScore >= 8).length} high-value
-              </span>
-              <span>·</span>
-              <span>
-                {segments.filter((s) => s.suggestedFormat === "short-form clip").length} clips
-              </span>
+            {/* Stats bar + Tab toggle */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {segments.length} segments
+                </span>
+                <span>·</span>
+                <span>
+                  {segments.filter((s) => s.clipQualityScore >= 8).length} high-value
+                </span>
+                <span>·</span>
+                <span>
+                  {quotes.length} quotes
+                </span>
+              </div>
+
+              <div className="flex items-center bg-muted rounded-lg p-0.5">
+                <button
+                  onClick={() => setActiveTab("segments")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    activeTab === "segments"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  data-testid="tab-segments"
+                >
+                  <LayoutList className="w-3.5 h-3.5" />
+                  Segments
+                </button>
+                <button
+                  onClick={() => setActiveTab("quotes")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    activeTab === "quotes"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  data-testid="tab-quotes"
+                >
+                  <QuoteIcon className="w-3.5 h-3.5" />
+                  Quotes ({quotes.length})
+                </button>
+              </div>
             </div>
 
-            {/* Controls */}
+            {/* Controls — only show for segments tab */}
+            {activeTab === "segments" && (
+            <>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -644,6 +689,68 @@ export default function Home() {
                 </div>
               )}
             </div>
+            </>
+            )}
+
+            {/* Quotes tab */}
+            {activeTab === "quotes" && (
+              <>
+                <div className="flex items-center justify-end gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCopyResults}
+                        data-testid="button-copy-quotes"
+                      >
+                        <Copy className="w-3.5 h-3.5 mr-1.5" />
+                        Copy all
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy all quotes</TooltipContent>
+                  </Tooltip>
+                </div>
+
+                {quotes.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground">
+                    No quotes extracted from this video
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {quotes.map((q, idx) => (
+                      <div
+                        key={idx}
+                        className="border border-border rounded-lg p-4 hover:bg-muted/30 transition-colors group"
+                        data-testid={`quote-${idx}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <QuoteIcon className="w-4 h-4 text-muted-foreground/50 mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium leading-relaxed">
+                              “{q.quote}”
+                            </p>
+                            <span className="inline-block mt-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                              {q.timestamp}
+                            </span>
+                          </div>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(q.quote);
+                              toast({ title: "Quote copied" });
+                            }}
+                            data-testid={`copy-quote-${idx}`}
+                          >
+                            <Copy className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </main>

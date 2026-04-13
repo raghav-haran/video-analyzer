@@ -221,11 +221,78 @@ except json.JSONDecodeError as e:
     update_status("error", f"Failed to parse LLM response as JSON: {e}")
     sys.exit(1)
 
-# Write result
-with open(output_path, "w") as f:
-    json.dump(segments, f)
+# ── Step 5: Extract standalone quotes ────────────────────────────────────
+update_status("analyzing", "Extracting standalone quotes...")
 
-update_status("complete", f"Analysis complete: {len(segments)} segments found")
+quotes_prompt = f"""Extract every strong, standalone quote said in this video transcript.
+
+Rules:
+- Each quote MUST be understandable completely on its own, with zero context from the video.
+- Each quote must NOT be taken out of context — it should mean the same thing whether you read it here or saw the full video.
+- 1-3 sentences max per quote. Shorter is better.
+- Must sound like something you'd put on a motivational poster, tweet, or quote graphic.
+- Skip anything that references "this person", "that company", specific audience members, or situational details that only make sense in context.
+- Skip filler, transitions, or generic statements.
+- Capture the speaker's exact words as closely as possible (light cleanup for grammar is OK, but don't rewrite).
+
+Examples of GOOD standalone quotes:
+- "The only way to win in life is to fall in love with losing"
+- "You're not lost, you're just early in the process"
+- "Adversity is the key to success"
+- "Don't have the audacity to assume what you care about is what everyone should care about"
+
+Examples of BAD quotes (too contextual):
+- "I think you should post more Reels" (advice to a specific person)
+- "That's a great point about the Amsterdam tours" (references conversation)
+- "As I was telling the team earlier" (references situation)
+
+For each quote, output a JSON array where each element has:
+- "timestamp": the approximate timestamp where the quote was said (MM:SS)
+- "quote": the exact quote text
+
+Return ONLY the JSON array, no other text.
+
+TRANSCRIPT:
+{timestamped_transcript}"""
+
+quotes_message = client.messages.create(
+    model="claude_sonnet_4_6",
+    max_tokens=4096,
+    messages=[{"role": "user", "content": quotes_prompt}],
+)
+
+quotes_text = quotes_message.content[0].text.strip()
+
+# Extract JSON from response
+if quotes_text.startswith("```"):
+    qlines = quotes_text.split("\n")
+    json_lines_q = []
+    in_block = False
+    for line in qlines:
+        if line.startswith("```") and not in_block:
+            in_block = True
+            continue
+        elif line.startswith("```") and in_block:
+            break
+        elif in_block:
+            json_lines_q.append(line)
+    quotes_text = "\n".join(json_lines_q)
+
+try:
+    quotes = json.loads(quotes_text)
+except json.JSONDecodeError:
+    quotes = []
+
+# ── Write combined result ────────────────────────────────────────────────
+result = {
+    "segments": segments,
+    "quotes": quotes,
+}
+
+with open(output_path, "w") as f:
+    json.dump(result, f)
+
+update_status("complete", f"Analysis complete: {len(segments)} segments, {len(quotes)} quotes found")
 
 # Cleanup
 import shutil

@@ -101,6 +101,21 @@ const MOCK_SEGMENTS = [
   },
 ];
 
+const MOCK_QUOTES = [
+  { timestamp: "02:45", quote: "Run your business as if the cause doesn't exist. If it can stand on its own, then the social impact becomes a plus-up, not a crutch." },
+  { timestamp: "06:52", quote: "Don't have the audacity to assume what you care about is what everyone should care about." },
+  { timestamp: "07:30", quote: "Donor fatigue is insular to your past donors. Millions of people haven't heard your story yet." },
+  { timestamp: "11:45", quote: "Build low-cost AI tools as appetizers — a gateway drug to your core business." },
+  { timestamp: "12:20", quote: "When you expand to bigger waters, you're gonna find very different sharks." },
+  { timestamp: "15:48", quote: "It is not required to build a personal brand to build a business." },
+  { timestamp: "16:30", quote: "The words 'required' or 'I have to' are inappropriate words in business." },
+  { timestamp: "17:15", quote: "You can be an incredible boss. You can be an innovator. You can be a great salesperson. Personal brand is one of many levers." },
+  { timestamp: "35:55", quote: "Many people making 150 to 350K a year should build this exact business." },
+  { timestamp: "41:30", quote: "You're bringing a $100 million brand marketing strategy with zero revenue." },
+  { timestamp: "42:10", quote: "One TikTok with 40,000 views is greater than every sporting event in the country." },
+  { timestamp: "42:45", quote: "Sampling is good only if you're filming it for content." },
+];
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
@@ -123,7 +138,7 @@ export async function registerRoutes(
 
     if (useMock) {
       // For testing: immediately return mock data
-      storage.updateJobResult(job.id, JSON.stringify(MOCK_SEGMENTS));
+      storage.updateJobResult(job.id, JSON.stringify({ segments: MOCK_SEGMENTS, quotes: MOCK_QUOTES }));
       return res.json({ jobId: job.id, status: "complete" });
     }
 
@@ -152,9 +167,18 @@ export async function registerRoutes(
 
     if (job.result) {
       try {
-        response.segments = JSON.parse(job.result);
+        const parsed = JSON.parse(job.result);
+        // Support both old format (array of segments) and new format ({ segments, quotes })
+        if (Array.isArray(parsed)) {
+          response.segments = parsed;
+          response.quotes = [];
+        } else {
+          response.segments = parsed.segments || [];
+          response.quotes = parsed.quotes || [];
+        }
       } catch {
         response.segments = [];
+        response.quotes = [];
       }
     }
 

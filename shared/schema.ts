@@ -38,3 +38,19 @@ export const segmentSchema = z.object({
 });
 
 export type Segment = z.infer<typeof segmentSchema>;
+
+// Standalone quotes extracted from the video
+export const quoteSchema = z.object({
+  timestamp: z.string(), // MM:SS
+  quote: z.string(),
+});
+
+export type Quote = z.infer<typeof quoteSchema>;
+
+// The combined result returned by analysis
+export const analysisResultSchema = z.object({
+  segments: z.array(segmentSchema),
+  quotes: z.array(quoteSchema),
+});
+
+export type AnalysisResult = z.infer<typeof analysisResultSchema>;
