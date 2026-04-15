@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { spawn, execSync, execFileSync } from "child_process";
+import { spawn, execSync, execFileSync, execFile } from "child_process";
+import { promisify } from "util";
+const execFileAsync = promisify(execFile);
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -16,6 +18,7 @@ const CLICKUP_CUSTOM_FIELDS = {
   fileLocation: "c91c79de-536d-46a7-a092-c3c48c5b71c5",         // short_text
   tagsKeywords: "f5957548-bf3c-4ba7-8775-27ae5db08190",         // labels
   loggingDate: "944000a4-2aba-434d-a4b6-8970dc918b23",          // date (ms timestamp)
+  videoEventDropdown: "e2daf809-477f-4cdd-8cd4-05671201bbda",   // drop_down
 };
 
 // Predefined tag labels in ClickUp (id → label)
@@ -46,12 +49,24 @@ for (const [id, label] of Object.entries(CLICKUP_TAG_OPTIONS)) {
 
 function callExternalTool(sourceId: string, toolName: string, args: Record<string, any>): any {
   const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
-  // Use execFileSync to avoid shell escaping issues with quotes/emojis
   const result = execFileSync("external-tool", ["call", params], {
     encoding: "utf-8",
     timeout: 30000,
   });
   const parsed = JSON.parse(result.trim() || '{}');
+  if (parsed.error) {
+    throw new Error(`ClickUp API error: ${parsed.error}`);
+  }
+  return parsed;
+}
+
+async function callExternalToolAsync(sourceId: string, toolName: string, args: Record<string, any>): Promise<any> {
+  const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
+  const { stdout } = await execFileAsync("external-tool", ["call", params], {
+    encoding: "utf-8",
+    timeout: 30000,
+  });
+  const parsed = JSON.parse((stdout as string).trim() || '{}');
   if (parsed.error) {
     throw new Error(`ClickUp API error: ${parsed.error}`);
   }
@@ -260,44 +275,102 @@ export async function registerRoutes(
     res.json(response);
   });
 
-  // POST /api/clickup/push — Push segments to ClickUp as tasks
-  app.post("/api/clickup/push", async (req, res) => {
-    try {
-      const { jobId, segmentIndices } = req.body;
+  // In-memory store for push jobs (async background processing)
+  const pushJobs = new Map<string, {
+    status: "running" | "complete" | "error";
+    total: number;
+    succeeded: number;
+    failed: number;
+    current: number;
+    results: Array<{ segment: string; taskId?: string; error?: string }>;
+    error?: string;
+    dropdownMatched?: boolean;
+    dropdownWarning?: string;
+  }>();
 
-      if (!jobId) {
-        return res.status(400).json({ error: "jobId is required" });
+  // POST /api/clickup/push — Start pushing segments to ClickUp (async)
+  app.post("/api/clickup/push", (req, res) => {
+    const { jobId, segmentIndices } = req.body;
+
+    if (!jobId) {
+      return res.status(400).json({ error: "jobId is required" });
+    }
+
+    const job = storage.getJob(jobId);
+    if (!job || !job.result) {
+      return res.status(404).json({ error: "Job not found or no results" });
+    }
+
+    const parsed = JSON.parse(job.result);
+    const allSegments = Array.isArray(parsed) ? parsed : (parsed.segments || []);
+
+    const segmentsToPush = segmentIndices
+      ? segmentIndices.map((i: number) => allSegments[i]).filter(Boolean)
+      : allSegments;
+
+    if (segmentsToPush.length === 0) {
+      return res.status(400).json({ error: "No segments to push" });
+    }
+
+    // Create a push job ID and return immediately
+    const pushId = `push-${Date.now()}`;
+    pushJobs.set(pushId, {
+      status: "running",
+      total: segmentsToPush.length,
+      succeeded: 0,
+      failed: 0,
+      current: 0,
+      results: [],
+    });
+
+    // Return immediately — processing happens in background
+    res.json({ pushId, total: segmentsToPush.length });
+
+    // Process segments in the background
+    (async () => {
+      const pushJob = pushJobs.get(pushId)!;
+
+      // Fetch current dropdown options for "Video/Event Name (Dropdown)" field
+      let dropdownOptionId: string | null = null;
+      if (job.eventName) {
+        try {
+          const fieldsResult = await callExternalToolAsync("clickup__pipedream", "clickup-get-custom-fields", {
+            workspaceId: "9017366055",
+            spaceId: "90173833877",
+            listId: CLICKUP_LIST_ID,
+          });
+          // Parse the response — may be a JSON string or object
+          let fields = fieldsResult;
+          if (typeof fields === "string") fields = JSON.parse(fields);
+          if (fields?.fields) fields = fields.fields;
+          if (Array.isArray(fields)) {
+            const dropdownField = fields.find((f: any) => f.id === CLICKUP_CUSTOM_FIELDS.videoEventDropdown);
+            if (dropdownField?.type_config?.options) {
+              const eventNameLower = job.eventName.toLowerCase().trim();
+              const matchedOption = dropdownField.type_config.options.find(
+                (opt: any) => opt.name.toLowerCase().trim() === eventNameLower
+              );
+              if (matchedOption) {
+                dropdownOptionId = matchedOption.id;
+                console.log(`[ClickUp] Matched dropdown option: "${matchedOption.name}" (${matchedOption.id})`);
+              } else {
+                console.log(`[ClickUp] No dropdown option found for "${job.eventName}". Available: ${dropdownField.type_config.options.map((o: any) => o.name).join(", ")}`);
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error(`[ClickUp] Failed to fetch dropdown options:`, err.message?.slice(0, 200));
+        }
       }
-
-      const job = storage.getJob(jobId);
-      if (!job || !job.result) {
-        return res.status(404).json({ error: "Job not found or no results" });
-      }
-
-      const parsed = JSON.parse(job.result);
-      const allSegments = Array.isArray(parsed) ? parsed : (parsed.segments || []);
-
-      // If segmentIndices provided, push only those; otherwise push all
-      const segmentsToPush = segmentIndices
-        ? segmentIndices.map((i: number) => allSegments[i]).filter(Boolean)
-        : allSegments;
-
-      if (segmentsToPush.length === 0) {
-        return res.status(400).json({ error: "No segments to push" });
-      }
-
-      const results: Array<{ segment: string; taskId?: string; error?: string }> = [];
 
       for (const seg of segmentsToPush) {
+        pushJob.current++;
         try {
-          // Build the description/timestamp field
           const descTimestamp = `[${seg.start} – ${seg.end}] ${seg.detailedExplanation}`;
+          const ratingStr = "\u{1F525}".repeat(Math.min(Math.max(seg.rating || 1, 1), 3));
 
-          // Build rating string
-          const ratingStr = "🔥".repeat(Math.min(Math.max(seg.rating || 1, 1), 3));
-
-          // Step 1: Create the task
-          const createResult = callExternalTool("clickup__pipedream", "clickup-create-task", {
+          // Create the task
+          const createResult = await callExternalToolAsync("clickup__pipedream", "clickup-create-task", {
             workspaceId: "9017366055",
             spaceId: "90173833877",
             name: seg.shortSummary,
@@ -308,25 +381,25 @@ export async function registerRoutes(
 
           const taskId = createResult?.id;
           if (!taskId) {
-            results.push({ segment: seg.shortSummary, error: "Failed to create task — no ID returned" });
+            pushJob.failed++;
+            pushJob.results.push({ segment: seg.shortSummary, error: "No task ID returned" });
             continue;
           }
 
-          // Step 2: Set custom fields one by one
+          // Set custom fields
           const fieldsToSet: Array<{ fieldId: string; value: any }> = [
-            // Video/Event Name
             { fieldId: CLICKUP_CUSTOM_FIELDS.videoEventName, value: job.eventName || "" },
-            // Description / Timestamp
             { fieldId: CLICKUP_CUSTOM_FIELDS.descriptionTimestamp, value: descTimestamp },
-            // Ratings
             { fieldId: CLICKUP_CUSTOM_FIELDS.ratings, value: ratingStr },
-            // File Location (drive URL)
             { fieldId: CLICKUP_CUSTOM_FIELDS.fileLocation, value: job.driveUrl || "" },
-            // Logging Date (now, in ms)
             { fieldId: CLICKUP_CUSTOM_FIELDS.loggingDate, value: Date.now().toString() },
           ];
 
-          // Date Filmed (if provided)
+          // Set dropdown value if we found a matching option
+          if (dropdownOptionId) {
+            fieldsToSet.push({ fieldId: CLICKUP_CUSTOM_FIELDS.videoEventDropdown, value: dropdownOptionId });
+          }
+
           if (job.dateFilmed) {
             const dateMs = new Date(job.dateFilmed).getTime();
             if (!isNaN(dateMs)) {
@@ -334,19 +407,14 @@ export async function registerRoutes(
             }
           }
 
-          // Tags / Keywords (match segment tags to ClickUp labels)
           const matchedTagIds = matchTagsToClickUp(seg.tags || "");
           if (matchedTagIds.length > 0) {
-            fieldsToSet.push({
-              fieldId: CLICKUP_CUSTOM_FIELDS.tagsKeywords,
-              value: matchedTagIds,
-            });
+            fieldsToSet.push({ fieldId: CLICKUP_CUSTOM_FIELDS.tagsKeywords, value: matchedTagIds });
           }
 
-          // Set each custom field
           for (const field of fieldsToSet) {
             try {
-              callExternalTool("clickup__pipedream", "clickup-update-task-custom-field", {
+              await callExternalToolAsync("clickup__pipedream", "clickup-update-task-custom-field", {
                 workspaceId: "9017366055",
                 spaceId: "90173833877",
                 listId: CLICKUP_LIST_ID,
@@ -355,29 +423,64 @@ export async function registerRoutes(
                 value: field.value,
               });
             } catch (fieldErr: any) {
-              const errMsg = fieldErr.stderr?.toString?.() || fieldErr.message || 'unknown error';
-              console.error(`[ClickUp] Failed to set field ${field.fieldId} on task ${taskId}:`, errMsg.slice(0, 300));
+              console.error(`[ClickUp] Field error on ${taskId}:`, (fieldErr.stderr?.toString?.() || fieldErr.message || "").slice(0, 200));
             }
           }
 
-          results.push({ segment: seg.shortSummary, taskId });
+          pushJob.succeeded++;
+          pushJob.results.push({ segment: seg.shortSummary, taskId });
         } catch (segErr: any) {
-          results.push({ segment: seg.shortSummary, error: segErr.message?.slice(0, 200) });
+          pushJob.failed++;
+          pushJob.results.push({ segment: seg.shortSummary, error: (segErr.message || "").slice(0, 200) });
         }
       }
 
-      const succeeded = results.filter(r => r.taskId).length;
-      const failed = results.filter(r => r.error).length;
+      pushJob.status = "complete";
+      if (job.eventName && !dropdownOptionId) {
+        pushJob.dropdownMatched = false;
+        pushJob.dropdownWarning = `Dropdown option "${job.eventName}" not found in ClickUp. Add it manually in ClickUp, then push again to assign it.`;
+      } else if (dropdownOptionId) {
+        pushJob.dropdownMatched = true;
+      }
+      // Clean up after 5 minutes
+      setTimeout(() => pushJobs.delete(pushId), 5 * 60 * 1000);
+    })();
+  });
 
-      res.json({
-        message: `Pushed ${succeeded} of ${results.length} segments to ClickUp`,
-        succeeded,
-        failed,
-        results,
+  // GET /api/clickup/push/:pushId — Poll push progress
+  app.get("/api/clickup/push/:pushId", (req, res) => {
+    const pushJob = pushJobs.get(req.params.pushId);
+    if (!pushJob) {
+      return res.status(404).json({ error: "Push job not found" });
+    }
+    res.json(pushJob);
+  });
+
+  // GET /api/clickup/dropdown-options — Return available event name dropdown options from ClickUp
+  app.get("/api/clickup/dropdown-options", async (_req, res) => {
+    try {
+      const fieldsResult = await callExternalToolAsync("clickup__pipedream", "clickup-get-custom-fields", {
+        workspaceId: "9017366055",
+        spaceId: "90173833877",
+        listId: CLICKUP_LIST_ID,
       });
+      let fields = fieldsResult;
+      if (typeof fields === "string") fields = JSON.parse(fields);
+      if (fields?.fields) fields = fields.fields;
+      if (Array.isArray(fields)) {
+        const dropdownField = fields.find((f: any) => f.id === CLICKUP_CUSTOM_FIELDS.videoEventDropdown);
+        if (dropdownField?.type_config?.options) {
+          res.json(dropdownField.type_config.options.map((opt: any) => ({
+            id: opt.id,
+            name: opt.name,
+            color: opt.color,
+          })));
+          return;
+        }
+      }
+      res.json([]);
     } catch (err: any) {
-      console.error("[ClickUp Push] Error:", err.message);
-      res.status(500).json({ error: err.message || "Failed to push to ClickUp" });
+      res.status(500).json({ error: "Failed to fetch dropdown options", details: err.message?.slice(0, 200) });
     }
   });
 

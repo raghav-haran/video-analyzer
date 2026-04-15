@@ -88,6 +88,7 @@ export default function Home() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<"segments" | "quotes">("segments");
+  const [pushId, setPushId] = useState<string | null>(null);
   const [pushResult, setPushResult] = useState<{ succeeded: number; failed: number; total: number } | null>(null);
   const { toast } = useToast();
 
@@ -142,19 +143,50 @@ export default function Home() {
     },
   });
 
-  // Push to ClickUp mutation
+  // Poll for ClickUp push progress
+  interface PushStatus {
+    status: "running" | "complete" | "error";
+    total: number;
+    succeeded: number;
+    failed: number;
+    current: number;
+    dropdownMatched?: boolean;
+    dropdownWarning?: string;
+  }
+  const { data: pushStatus } = useQuery<PushStatus>({
+    queryKey: ["/api/clickup/push", pushId],
+    enabled: pushId !== null,
+    refetchInterval: (query) => {
+      const data = query.state.data as PushStatus | undefined;
+      if (!data) return 1500;
+      if (data.status === "complete" || data.status === "error") return false;
+      return 1500;
+    },
+  });
+
+  // When push completes, show toast and set result
+  const prevPushStatusRef = useMemo(() => ({ current: null as string | null }), []);
+  if (pushStatus?.status === "complete" && prevPushStatusRef.current !== pushId) {
+    prevPushStatusRef.current = pushId;
+    setPushResult({ succeeded: pushStatus.succeeded, failed: pushStatus.failed, total: pushStatus.total });
+    if (pushStatus.dropdownWarning) {
+      toast({
+        title: "Dropdown not matched",
+        description: pushStatus.dropdownWarning,
+        variant: "destructive",
+      });
+    }
+  }
+
+  // Push to ClickUp mutation (starts the async push)
   const clickupMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/clickup/push", { jobId });
       return res.json();
     },
-    onSuccess: (data: { succeeded: number; failed: number; results: any[] }) => {
-      setPushResult({ succeeded: data.succeeded, failed: data.failed, total: data.results.length });
-      toast({
-        title: data.failed === 0
-          ? `Pushed ${data.succeeded} moments to ClickUp`
-          : `Pushed ${data.succeeded} of ${data.results.length} (${data.failed} failed)`,
-      });
+    onSuccess: (data: { pushId: string; total: number }) => {
+      setPushId(data.pushId);
+      setPushResult(null);
     },
     onError: (err: Error) => {
       toast({
@@ -280,6 +312,7 @@ export default function Home() {
     setSortDir("desc");
     setExpandedRows(new Set());
     setActiveTab("segments");
+    setPushId(null);
     setPushResult(null);
   };
 
@@ -573,6 +606,13 @@ export default function Home() {
               </Button>
 
               <div className="ml-auto flex items-center gap-2">
+                {/* Push progress or result indicator */}
+                {pushStatus?.status === "running" && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    {pushStatus.current}/{pushStatus.total} pushing...
+                  </span>
+                )}
                 {pushResult && (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     {pushResult.failed === 0 ? (
@@ -581,6 +621,16 @@ export default function Home() {
                       <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
                     )}
                     {pushResult.succeeded}/{pushResult.total} pushed
+                    {pushStatus?.dropdownMatched === false && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-500 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[300px]">
+                          {pushStatus.dropdownWarning || "Dropdown option not matched"}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </span>
                 )}
 
@@ -590,15 +640,19 @@ export default function Home() {
                       variant={pushResult ? "outline" : "default"}
                       size="sm"
                       onClick={() => clickupMutation.mutate()}
-                      disabled={clickupMutation.isPending}
+                      disabled={clickupMutation.isPending || pushStatus?.status === "running"}
                       data-testid="button-push-clickup"
                     >
-                      {clickupMutation.isPending ? (
+                      {(clickupMutation.isPending || pushStatus?.status === "running") ? (
                         <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                       ) : (
                         <Upload className="w-3.5 h-3.5 mr-1.5" />
                       )}
-                      {clickupMutation.isPending ? "Pushing..." : "Push to ClickUp"}
+                      {pushStatus?.status === "running"
+                        ? `${pushStatus.current}/${pushStatus.total}`
+                        : clickupMutation.isPending
+                          ? "Starting..."
+                          : "Push to ClickUp"}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Create tasks in ClickUp for all segments</TooltipContent>
