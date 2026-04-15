@@ -18,6 +18,7 @@ import base64
 drive_url = sys.argv[1]
 output_path = sys.argv[2]
 status_path = sys.argv[3]  # file to write status updates
+creds_path = sys.argv[4] if len(sys.argv) > 4 else None  # LLM credential file (refreshed by Express)
 
 
 def update_status(status: str, message: str = ""):
@@ -158,6 +159,18 @@ timestamped_transcript = "\n".join(transcript_lines)
 update_status("analyzing", "Analyzing transcript and creating segments...")
 
 from anthropic import Anthropic
+
+# Read fresh credentials from the file that Express keeps updated
+if creds_path and os.path.exists(creds_path):
+    try:
+        with open(creds_path) as f:
+            creds = json.load(f)
+        if creds.get("ANTHROPIC_API_KEY"):
+            os.environ["ANTHROPIC_API_KEY"] = creds["ANTHROPIC_API_KEY"]
+        if creds.get("ANTHROPIC_BASE_URL"):
+            os.environ["ANTHROPIC_BASE_URL"] = creds["ANTHROPIC_BASE_URL"]
+    except Exception as e:
+        print(f"Warning: Could not read LLM creds file: {e}", file=sys.stderr)
 
 client = Anthropic()
 

@@ -7,6 +7,7 @@ const execFileAsync = promisify(execFile);
 import path from "path";
 import fs from "fs";
 import os from "os";
+import https from "https";
 
 // ClickUp integration constants
 const CLICKUP_LIST_ID = "901712538913";
@@ -47,52 +48,74 @@ for (const [id, label] of Object.entries(CLICKUP_TAG_OPTIONS)) {
   TAG_LABEL_TO_ID[label.toLowerCase()] = id;
 }
 
-// Sync the credential file that external-tool CLI reads from process.env
-// The deployed site proxy updates process.env on each frontend request,
-// but /tmp/.tools_service_endpoint only gets written at startup.
-function refreshCredentialFile() {
-  const endpoint = process.env.ASI_EXTERNAL_TOOLS_ENDPOINT;
-  const key = process.env.ASI_EXTERNAL_TOOLS_KEY;
-  if (endpoint && key) {
+// Make HTTP requests directly to the agent proxy instead of shelling out to external-tool CLI.
+// This reads credentials from process.env (refreshed by the site proxy on each frontend request)
+// and avoids the stale /tmp/.tools_service_endpoint file issue.
+function getToolsCredentials(): { endpoint: string; key: string; agentId?: string } {
+  const endpoint = process.env.ASI_EXTERNAL_TOOLS_ENDPOINT || "";
+  const key = process.env.ASI_EXTERNAL_TOOLS_KEY || "";
+  const agentId = process.env.ASI_AGENT_ID;
+  if (!endpoint || !key) {
+    // Fallback: try reading from the file
     try {
-      const config = JSON.stringify({
-        endpoint,
-        key,
-        agent_id: process.env.ASI_AGENT_ID || undefined,
-      });
-      fs.writeFileSync("/tmp/.tools_service_endpoint", config);
-    } catch (e) {
-      console.error("[Creds] Failed to refresh credential file:", e);
+      const config = JSON.parse(fs.readFileSync("/tmp/.tools_service_endpoint", "utf-8"));
+      return { endpoint: config.endpoint, key: config.key, agentId: config.agent_id };
+    } catch {
+      throw new Error("No external tools credentials available");
     }
   }
-}
-
-function callExternalTool(sourceId: string, toolName: string, args: Record<string, any>): any {
-  refreshCredentialFile();
-  const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
-  const result = execFileSync("external-tool", ["call", params], {
-    encoding: "utf-8",
-    timeout: 30000,
-  });
-  const parsed = JSON.parse(result.trim() || '{}');
-  if (parsed.error) {
-    throw new Error(`ClickUp API error: ${parsed.error}`);
-  }
-  return parsed;
+  return { endpoint, key, agentId };
 }
 
 async function callExternalToolAsync(sourceId: string, toolName: string, args: Record<string, any>): Promise<any> {
-  refreshCredentialFile();
-  const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
-  const { stdout } = await execFileAsync("external-tool", ["call", params], {
-    encoding: "utf-8",
-    timeout: 30000,
+  const { endpoint, key, agentId } = getToolsCredentials();
+  const url = `${endpoint}/rest/connector-service/connectors/${sourceId}/tools/${toolName}/execute`;
+
+  const body = JSON.stringify({ parameters: args });
+  const headers: Record<string, string> = {
+    "x-api-key": key,
+    "Content-Type": "application/json",
+  };
+  if (agentId) headers["X-Agent-ID"] = agentId;
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { method: "POST", headers, timeout: 60000 }, (res) => {
+      let data = "";
+      res.on("data", (chunk: Buffer) => { data += chunk.toString(); });
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`API ${res.statusCode}: ${data.slice(0, 300)}`));
+            return;
+          }
+          // Mirror the external-tool CLI response handling
+          const status = parsed.status;
+          if (status === "auth_required") {
+            reject(new Error(`auth_required for ${sourceId}`));
+            return;
+          }
+          if (status === "error") {
+            const msg = parsed.error_message || parsed.content || "unknown error";
+            reject(new Error(`API error: ${typeof msg === 'string' ? msg.slice(0, 300) : JSON.stringify(msg).slice(0, 300)}`));
+            return;
+          }
+          // Extract content (same as CLI)
+          let content = parsed.content;
+          if (typeof content === "string") {
+            try { content = JSON.parse(content); } catch {}
+          }
+          resolve(content);
+        } catch (e) {
+          reject(new Error(`Failed to parse response: ${data.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
+    req.write(body);
+    req.end();
   });
-  const parsed = JSON.parse((stdout as string).trim() || '{}');
-  if (parsed.error) {
-    throw new Error(`ClickUp API error: ${parsed.error}`);
-  }
-  return parsed;
 }
 
 function matchTagsToClickUp(segmentTags: string): string[] {
@@ -230,6 +253,22 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
+  // Refresh LLM credential files on every request (the proxy refreshes process.env per request)
+  app.use((_req, _res, next) => {
+    // Update any active LLM cred files so long-running Python processes get fresh keys
+    try {
+      const homeDir = os.homedir();
+      const files = fs.readdirSync(homeDir).filter(f => f.startsWith('llm-creds-'));
+      for (const file of files) {
+        fs.writeFileSync(path.join(homeDir, file), JSON.stringify({
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || "",
+        }));
+      }
+    } catch {}
+    next();
+  });
+
   // POST /api/analyze — Start a new analysis job
   app.post("/api/analyze", (req, res) => {
     const { driveUrl, eventName, dateFilmed, useMock } = req.body;
@@ -365,14 +404,8 @@ export async function registerRoutes(
               spaceId: "90173833877",
               listId: CLICKUP_LIST_ID,
             });
-            // Parse the response — may be a JSON string, nested result, or object
+            // Parse the response — callExternalToolAsync now returns parsed content directly
             let fields = fieldsResult;
-            if (typeof fields === "string") fields = JSON.parse(fields);
-            if (fields?.result !== undefined) {
-              let inner = fields.result;
-              if (typeof inner === "string") inner = JSON.parse(inner);
-              fields = inner;
-            }
             if (fields?.fields) fields = fields.fields;
             console.log(`[ClickUp] Fields response type: ${typeof fields}, isArray: ${Array.isArray(fields)}, length: ${Array.isArray(fields) ? fields.length : 'n/a'}`);
             if (Array.isArray(fields)) {
@@ -531,7 +564,6 @@ export async function registerRoutes(
         listId: CLICKUP_LIST_ID,
       });
       let fields = fieldsResult;
-      if (typeof fields === "string") fields = JSON.parse(fields);
       if (fields?.fields) fields = fields.fields;
       if (Array.isArray(fields)) {
         const dropdownField = fields.find((f: any) => f.id === CLICKUP_CUSTOM_FIELDS.videoEventDropdown);
@@ -615,7 +647,20 @@ function processVideo(jobId: number, driveUrl: string) {
   const projectRoot = process.cwd();
   const scriptPath = path.join(projectRoot, "server", "process_video.py");
 
-  const proc = spawn("python3", [scriptPath, driveUrl, outputPath, statusPath], {
+  // Write a credential file the Python script can read right before making API calls.
+  // process.env gets stale for long-running child processes, so we write fresh creds
+  // to a file and the Python script reads from it at the moment it needs the key.
+  const credsPath = path.join(os.homedir(), `llm-creds-${jobId}.json`);
+  try {
+    fs.writeFileSync(credsPath, JSON.stringify({
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || "",
+    }));
+  } catch (e) {
+    console.error(`[Job ${jobId}] Failed to write LLM creds file:`, e);
+  }
+
+  const proc = spawn("python3", [scriptPath, driveUrl, outputPath, statusPath, credsPath], {
     env: { ...process.env },
     cwd: path.join(projectRoot, "server"),
   });
@@ -663,6 +708,7 @@ function processVideo(jobId: number, driveUrl: string) {
     // Cleanup temp files
     try { fs.unlinkSync(outputPath); } catch {}
     try { fs.unlinkSync(statusPath); } catch {}
+    try { fs.unlinkSync(credsPath); } catch {}
   });
 
   proc.stderr.on("data", (data) => {
