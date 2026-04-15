@@ -47,7 +47,28 @@ for (const [id, label] of Object.entries(CLICKUP_TAG_OPTIONS)) {
   TAG_LABEL_TO_ID[label.toLowerCase()] = id;
 }
 
+// Sync the credential file that external-tool CLI reads from process.env
+// The deployed site proxy updates process.env on each frontend request,
+// but /tmp/.tools_service_endpoint only gets written at startup.
+function refreshCredentialFile() {
+  const endpoint = process.env.ASI_EXTERNAL_TOOLS_ENDPOINT;
+  const key = process.env.ASI_EXTERNAL_TOOLS_KEY;
+  if (endpoint && key) {
+    try {
+      const config = JSON.stringify({
+        endpoint,
+        key,
+        agent_id: process.env.ASI_AGENT_ID || undefined,
+      });
+      fs.writeFileSync("/tmp/.tools_service_endpoint", config);
+    } catch (e) {
+      console.error("[Creds] Failed to refresh credential file:", e);
+    }
+  }
+}
+
 function callExternalTool(sourceId: string, toolName: string, args: Record<string, any>): any {
+  refreshCredentialFile();
   const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
   const result = execFileSync("external-tool", ["call", params], {
     encoding: "utf-8",
@@ -61,6 +82,7 @@ function callExternalTool(sourceId: string, toolName: string, args: Record<strin
 }
 
 async function callExternalToolAsync(sourceId: string, toolName: string, args: Record<string, any>): Promise<any> {
+  refreshCredentialFile();
   const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
   const { stdout } = await execFileAsync("external-tool", ["call", params], {
     encoding: "utf-8",
