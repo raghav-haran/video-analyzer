@@ -56,6 +56,7 @@ function RatingFire({ rating }: { rating: number }) {
 interface JobResponse {
   id: number;
   driveUrl: string;
+  eventName?: string;
   dateFilmed?: string;
   status: string;
   statusMessage?: string;
@@ -74,6 +75,7 @@ const STATUS_MESSAGES: Record<string, string> = {
 
 export default function Home() {
   const [driveUrl, setDriveUrl] = useState("");
+  const [eventName, setEventName] = useState("");
   const [dateFilmed, setDateFilmed] = useState("");
   const [jobId, setJobId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -103,7 +105,7 @@ export default function Home() {
   // Submit analysis
   const analyzeMutation = useMutation({
     mutationFn: async (url: string) => {
-      const res = await apiRequest("POST", "/api/analyze", { driveUrl: url, dateFilmed: dateFilmed || undefined });
+      const res = await apiRequest("POST", "/api/analyze", { driveUrl: url, eventName: eventName || undefined, dateFilmed: dateFilmed || undefined });
       return res.json();
     },
     onSuccess: (data: { jobId: number }) => {
@@ -240,6 +242,7 @@ export default function Home() {
   const handleReset = () => {
     setJobId(null);
     setDriveUrl("");
+    setEventName("");
     setDateFilmed("");
     setSearchQuery("");
     setTagFilter("all");
@@ -315,17 +318,27 @@ export default function Home() {
                 </Button>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <Input
-                  type="date"
-                  placeholder="Date filmed"
-                  value={dateFilmed}
-                  onChange={(e) => setDateFilmed(e.target.value)}
-                  className="w-[180px]"
-                  data-testid="input-date-filmed"
-                />
-                <span className="text-xs text-muted-foreground">Date filmed (optional)</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <Film className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Input
+                    type="text"
+                    placeholder="Event name (e.g. Vibe Family Q&A)"
+                    value={eventName}
+                    onChange={(e) => setEventName(e.target.value)}
+                    data-testid="input-event-name"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Input
+                    type="date"
+                    value={dateFilmed}
+                    onChange={(e) => setDateFilmed(e.target.value)}
+                    className="w-[180px]"
+                    data-testid="input-date-filmed"
+                  />
+                </div>
               </div>
 
               {job?.status === "error" && (

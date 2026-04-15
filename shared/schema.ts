@@ -6,6 +6,7 @@ import { z } from "zod";
 export const analysisJobs = sqliteTable("analysis_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   driveUrl: text("drive_url").notNull(),
+  eventName: text("event_name"), // name of the video event
   dateFilmed: text("date_filmed"), // date the video was filmed
   status: text("status").notNull().default("pending"), // pending, downloading, transcribing, analyzing, complete, error
   statusMessage: text("status_message"),
@@ -15,6 +16,7 @@ export const analysisJobs = sqliteTable("analysis_jobs", {
 
 export const insertJobSchema = createInsertSchema(analysisJobs).pick({
   driveUrl: true,
+  eventName: true,
   dateFilmed: true,
 });
 

@@ -3,7 +3,7 @@ import { db } from "./db";
 import { eq } from "drizzle-orm";
 
 export interface IStorage {
-  createJob(driveUrl: string, dateFilmed?: string): AnalysisJob;
+  createJob(driveUrl: string, eventName?: string, dateFilmed?: string): AnalysisJob;
   getJob(id: number): AnalysisJob | undefined;
   getAllJobs(): AnalysisJob[];
   updateJobStatus(id: number, status: string, statusMessage?: string): void;
@@ -11,11 +11,12 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  createJob(driveUrl: string, dateFilmed?: string): AnalysisJob {
+  createJob(driveUrl: string, eventName?: string, dateFilmed?: string): AnalysisJob {
     return db
       .insert(analysisJobs)
       .values({
         driveUrl,
+        eventName: eventName || null,
         dateFilmed: dateFilmed || null,
         status: "pending",
         createdAt: new Date().toISOString(),

@@ -122,7 +122,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   // POST /api/analyze — Start a new analysis job
   app.post("/api/analyze", (req, res) => {
-    const { driveUrl, dateFilmed, useMock } = req.body;
+    const { driveUrl, eventName, dateFilmed, useMock } = req.body;
 
     if (!driveUrl) {
       return res.status(400).json({ error: "driveUrl is required" });
@@ -134,7 +134,7 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Invalid Google Drive URL" });
     }
 
-    const job = storage.createJob(driveUrl, dateFilmed);
+    const job = storage.createJob(driveUrl, eventName, dateFilmed);
 
     if (useMock) {
       // For testing: immediately return mock data
@@ -160,6 +160,7 @@ export async function registerRoutes(
     const response: any = {
       id: job.id,
       driveUrl: job.driveUrl,
+      eventName: job.eventName,
       dateFilmed: job.dateFilmed,
       status: job.status,
       statusMessage: job.statusMessage,
