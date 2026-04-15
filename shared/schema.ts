@@ -6,14 +6,16 @@ import { z } from "zod";
 export const analysisJobs = sqliteTable("analysis_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   driveUrl: text("drive_url").notNull(),
+  dateFilmed: text("date_filmed"), // date the video was filmed
   status: text("status").notNull().default("pending"), // pending, downloading, transcribing, analyzing, complete, error
   statusMessage: text("status_message"),
-  result: text("result"), // JSON string of Segment[]
+  result: text("result"), // JSON string of AnalysisResult
   createdAt: text("created_at").notNull(),
 });
 
 export const insertJobSchema = createInsertSchema(analysisJobs).pick({
   driveUrl: true,
+  dateFilmed: true,
 });
 
 export type InsertJob = z.infer<typeof insertJobSchema>;
@@ -26,8 +28,8 @@ export const segmentSchema = z.object({
   shortSummary: z.string(),
   detailedExplanation: z.string(),
   tags: z.string(),
-  clipQualityScore: z.number().min(1).max(10),
-  scoreReason: z.string(),
+  rating: z.number().min(1).max(3), // 1=🔥, 2=🔥🔥, 3=🔥🔥🔥
+  ratingReason: z.string(),
   suggestedFormat: z.enum([
     "short-form clip",
     "LinkedIn post",

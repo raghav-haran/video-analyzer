@@ -26,12 +26,13 @@ import {
   Film,
   Clock,
   Tag,
-  Star,
+  Flame,
   ChevronDown,
   ChevronUp,
   X,
   Quote as QuoteIcon,
   LayoutList,
+  Calendar,
 } from "lucide-react";
 import type { Segment, Quote } from "@shared/schema";
 
@@ -43,43 +44,19 @@ const FORMAT_COLORS: Record<string, string> = {
   "not useful": "bg-neutral-100 text-neutral-500 dark:bg-neutral-800/40 dark:text-neutral-400",
 };
 
-const SCORE_COLORS: Record<string, string> = {
-  high: "text-emerald-600 dark:text-emerald-400",
-  mid: "text-amber-600 dark:text-amber-400",
-  low: "text-neutral-400 dark:text-neutral-500",
-};
-
-function scoreColor(score: number) {
-  if (score >= 8) return SCORE_COLORS.high;
-  if (score >= 5) return SCORE_COLORS.mid;
-  return SCORE_COLORS.low;
-}
-
-function ScoreBar({ score }: { score: number }) {
+function RatingFire({ rating }: { rating: number }) {
+  const fires = Math.min(Math.max(rating, 1), 3);
   return (
-    <div className="flex items-center gap-2">
-      <span className={`text-lg font-semibold tabular-nums ${scoreColor(score)}`}>
-        {score}
-      </span>
-      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${
-            score >= 8
-              ? "bg-emerald-500"
-              : score >= 5
-                ? "bg-amber-500"
-                : "bg-neutral-300 dark:bg-neutral-600"
-          }`}
-          style={{ width: `${score * 10}%` }}
-        />
-      </div>
-    </div>
+    <span className="text-sm whitespace-nowrap" title={`Rating: ${fires}/3`}>
+      {"🔥".repeat(fires)}
+    </span>
   );
 }
 
 interface JobResponse {
   id: number;
   driveUrl: string;
+  dateFilmed?: string;
   status: string;
   statusMessage?: string;
   segments?: Segment[];
@@ -97,6 +74,7 @@ const STATUS_MESSAGES: Record<string, string> = {
 
 export default function Home() {
   const [driveUrl, setDriveUrl] = useState("");
+  const [dateFilmed, setDateFilmed] = useState("");
   const [jobId, setJobId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("all");
@@ -125,7 +103,7 @@ export default function Home() {
   // Submit analysis
   const analyzeMutation = useMutation({
     mutationFn: async (url: string) => {
-      const res = await apiRequest("POST", "/api/analyze", { driveUrl: url });
+      const res = await apiRequest("POST", "/api/analyze", { driveUrl: url, dateFilmed: dateFilmed || undefined });
       return res.json();
     },
     onSuccess: (data: { jobId: number }) => {
@@ -208,8 +186,8 @@ export default function Home() {
     result.sort((a, b) => {
       if (sortBy === "score") {
         return sortDir === "desc"
-          ? b.clipQualityScore - a.clipQualityScore
-          : a.clipQualityScore - b.clipQualityScore;
+          ? b.rating - a.rating
+          : a.rating - b.rating;
       }
       // time sort
       const aTime = a.start.split(":").reduce((acc, v) => acc * 60 + parseInt(v), 0);
@@ -240,7 +218,7 @@ export default function Home() {
       const text = filteredSegments
         .map(
           (seg) =>
-            `[${seg.start}–${seg.end}] ${seg.shortSummary}\nScore: ${seg.clipQualityScore}/10 | Format: ${seg.suggestedFormat}\n${seg.detailedExplanation}\nTags: ${seg.tags}\n`,
+            `[${seg.start}–${seg.end}] ${seg.shortSummary}\nRating: ${"🔥".repeat(seg.rating)} | Format: ${seg.suggestedFormat}\n${seg.detailedExplanation}\nTags: ${seg.tags}\n`,
         )
         .join("\n");
       navigator.clipboard.writeText(text);
@@ -262,6 +240,7 @@ export default function Home() {
   const handleReset = () => {
     setJobId(null);
     setDriveUrl("");
+    setDateFilmed("");
     setSearchQuery("");
     setTagFilter("all");
     setFormatFilter("all");
@@ -336,6 +315,19 @@ export default function Home() {
                 </Button>
               </div>
 
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="date"
+                  placeholder="Date filmed"
+                  value={dateFilmed}
+                  onChange={(e) => setDateFilmed(e.target.value)}
+                  className="w-[180px]"
+                  data-testid="input-date-filmed"
+                />
+                <span className="text-xs text-muted-foreground">Date filmed (optional)</span>
+              </div>
+
               {job?.status === "error" && (
                 <div className="bg-destructive/10 text-destructive rounded-lg p-3 text-sm">
                   {job.statusMessage || "An unknown error occurred"}
@@ -404,7 +396,11 @@ export default function Home() {
                 </span>
                 <span>·</span>
                 <span>
-                  {segments.filter((s) => s.clipQualityScore >= 8).length} high-value
+                  {segments.filter((s) => s.rating === 3).length} 🔥🔥🔥
+                </span>
+                <span>·</span>
+                <span>
+                  {segments.filter((s) => s.rating === 2).length} 🔥🔥
                 </span>
                 <span>·</span>
                 <span>
@@ -499,8 +495,8 @@ export default function Home() {
                 className={sortBy === "score" ? "border-foreground/30" : ""}
                 data-testid="button-sort-score"
               >
-                <Star className="w-3.5 h-3.5 mr-1.5" />
-                Score
+                <Flame className="w-3.5 h-3.5 mr-1.5" />
+                Rating
                 {sortBy === "score" &&
                   (sortDir === "desc" ? (
                     <ChevronDown className="w-3.5 h-3.5 ml-1" />
@@ -600,7 +596,7 @@ export default function Home() {
                         Summary
                       </th>
                       <th className="text-left py-2.5 px-3 font-medium text-muted-foreground w-[80px]">
-                        Score
+                        Rating
                       </th>
                       <th className="text-left py-2.5 px-3 font-medium text-muted-foreground w-[140px]">
                         Format
@@ -634,9 +630,9 @@ export default function Home() {
                                 </p>
                                 <p className="text-muted-foreground text-xs">
                                   <span className="font-medium text-foreground/70">
-                                    Score reason:
+                                    Rating reason:
                                   </span>{" "}
-                                  {seg.scoreReason}
+                                  {seg.ratingReason}
                                 </p>
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {seg.tags.split(",").map((t) => {
@@ -660,7 +656,7 @@ export default function Home() {
                             )}
                           </td>
                           <td className="py-2.5 px-3 align-top">
-                            <ScoreBar score={seg.clipQualityScore} />
+                            <RatingFire rating={seg.rating} />
                           </td>
                           <td className="py-2.5 px-3 align-top">
                             <span

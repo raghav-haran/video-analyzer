@@ -166,19 +166,15 @@ analysis_prompt = f"""Analyze this full video transcript and break it into meani
 For each segment, output a JSON array where each element has:
 - "start": start timestamp (MM:SS)
 - "end": end timestamp (MM:SS)
-- "shortSummary": short summary (1 line)
-- "detailedExplanation": detailed explanation of what is being discussed (2-4 sentences)
-- "tags": comma-separated tags
-- "clipQualityScore": score from 1-10 (10 = absolute fire content)
-- "scoreReason": reason for the score (1-2 sentences)
+- "shortSummary": short title of what the moment is about (1 line, written as a clear content title)
+- "detailedExplanation": detailed explanation of what is being discussed, including key points and context (2-4 sentences)
+- "tags": comma-separated tags/keywords about the moment
+- "rating": integer from 1 to 3:
+  - 1 = Regular moment. Not a good clip but worth logging for reference.
+  - 2 = Not bad. Might be clipped or used somewhere.
+  - 3 = Very strong moment. Can be clipped and has high potential.
+- "ratingReason": reason for the rating (1-2 sentences)
 - "suggestedFormat": one of "short-form clip", "LinkedIn post", "Twitter/X post", "quote graphic", "not useful"
-
-Guidelines for scoring:
-- 9-10: Quotable, counter-narrative, universally applicable insights. Would go viral as a clip.
-- 7-8: Strong tactical advice with memorable frameworks or metaphors. Good standalone content.
-- 5-6: Decent context or setup. Works as part of a longer piece but not standalone.
-- 3-4: Introductions, transitions, or filler. Low standalone value.
-- 1-2: Off-topic, technical issues, or dead air.
 
 Guidelines for suggested format:
 - "short-form clip": Best moments that work as 30-90 second video clips (Reels, TikTok, Shorts)

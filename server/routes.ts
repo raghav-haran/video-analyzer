@@ -15,8 +15,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Internal team discussion before Q&A",
     detailedExplanation: "Gary speaks with a team member about turnaround time for getting great content in front of him for Instagram. He emphasizes that if something is outstanding, it needs to reach him within 24 hours.",
     tags: "internal, content workflow, Instagram, turnaround time",
-    clipQualityScore: 3,
-    scoreReason: "Internal conversation not meant for public. Low engagement value for external audiences.",
+    rating: 1,
+    ratingReason: "Internal conversation not meant for public. Low engagement value for external audiences.",
     suggestedFormat: "not useful" as const,
   },
   {
@@ -25,8 +25,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Gary on why sustainability shouldn't be your only selling point",
     detailedExplanation: "Gary explains the market didn't shift away from sustainability — consumers caught on to inauthentic brands using it as a marketing tactic. His key advice: treat social impact as a 'plus-up,' not the sole reason someone buys. Run your business as if the cause doesn't exist.",
     tags: "sustainability, social impact, authenticity, branding, marketing",
-    clipQualityScore: 9,
-    scoreReason: "Extremely high-value advice. The umbrella brand anecdote is memorable. The 'run it as if the cause doesn't exist' framework is quotable.",
+    rating: 3,
+    ratingReason: "Extremely high-value advice. The umbrella brand anecdote is memorable. The 'run it as if the cause doesn't exist' framework is quotable.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -35,8 +35,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Gary on overcoming donor fatigue through storytelling",
     detailedExplanation: "Gary delivers powerful advice on donor fatigue. Don't have the audacity to assume what you care about is what everyone should care about. Donor fatigue is insular to past donors — millions haven't heard your story yet. One post can change the narrative.",
     tags: "donor fatigue, storytelling, nonprofit, empathy, content creation",
-    clipQualityScore: 9,
-    scoreReason: "Incredibly powerful and quotable. The 'don't have the audacity' framework is pure Gary. Multiple clip-worthy moments.",
+    rating: 3,
+    ratingReason: "Incredibly powerful and quotable. The 'don't have the audacity' framework is pure Gary. Multiple clip-worthy moments.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -45,8 +45,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "AI tools as appetizers and desserts for the core business",
     detailedExplanation: "Gary uses a restaurant metaphor — build low-cost AI SaaS tools as 'amuse-bouche/appetizer' (gateway drug) or 'dessert' (upsell). Warns about expanding to bigger waters: 'You're gonna find very different sharks' like OpenAI and Google.",
     tags: "AI tools, SaaS, business model, restaurant metaphor, niche strategy",
-    clipQualityScore: 8,
-    scoreReason: "Brilliant restaurant metaphor. The 'different sharks' warning is quotable. Highly applicable to any business thinking about AI expansion.",
+    rating: 2,
+    ratingReason: "Brilliant restaurant metaphor. The 'different sharks' warning is quotable. Highly applicable to any business thinking about AI expansion.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -55,8 +55,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "You don't NEED a personal brand — many other levers in business",
     detailedExplanation: "Counter-narrative from the king of personal branding: 'It is not required to build a personal brand to build a business.' Lists alternative levers: sales, content without you in it, being a great boss, being an innovator. 'The words required or I have to are inappropriate words in business.'",
     tags: "personal brand, business levers, courage, authenticity, self-awareness",
-    clipQualityScore: 10,
-    scoreReason: "THE clip. Counter-narrative from the king of personal branding. Swimming/sister story is hilarious. The list of alternative levers is gold. Will resonate with millions of founders.",
+    rating: 3,
+    ratingReason: "THE clip. Counter-narrative from the king of personal branding. Swimming/sister story is hilarious. The list of alternative levers is gold. Will resonate with millions of founders.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -65,8 +65,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Live Instagram audit of Amsterdam tour account",
     detailedExplanation: "Gary looks up the Instagram account live and discovers a massive gap — last post before the call was September 30th. She clearly scrambled before the meeting. Despite inconsistency, he praises content quality and gives tactical advice: Reels over Stories, cross-platform posting.",
     tags: "content strategy, Instagram audit, consistency, Reels, TikTok, live audit",
-    clipQualityScore: 9,
-    scoreReason: "The live audit posting gap discovery is hilarious and relatable. Specific tactical advice is actionable. Masterclass for service businesses.",
+    rating: 3,
+    ratingReason: "The live audit posting gap discovery is hilarious and relatable. Specific tactical advice is actionable. Masterclass for service businesses.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -75,8 +75,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Content compounding and organic growth for direct bookings",
     detailedExplanation: "Gary continues advising on moving away from platform dependency through organic content. One viral TikTok showing a magical tour moment could generate massive awareness. Consistency will naturally drive direct bookings as the brand becomes recognizable.",
     tags: "direct bookings, organic content, viral moments, content compounding, tours",
-    clipQualityScore: 7,
-    scoreReason: "Strong continuation with actionable tactics. Advice about capturing authentic moments vs. polished content is valuable for experience-based businesses.",
+    rating: 2,
+    ratingReason: "Strong continuation with actionable tactics. Advice about capturing authentic moments vs. polished content is valuable for experience-based businesses.",
     suggestedFormat: "LinkedIn post" as const,
   },
   {
@@ -85,8 +85,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "Phone-free experiences: brilliant business model and 'too polished' content critique",
     detailedExplanation: "Gary endorses the phone-free experience concept: 'Many people making 150-350k a year should build this exact business.' Dismisses phone-free/content paradox. Critiques current content as 'too polished' for an authentic brand. Every event is a 'production day' with interns filming.",
     tags: "phone-free, community building, offline experiences, AI content, production day",
-    clipQualityScore: 9,
-    scoreReason: "Multiple powerhouse moments. The '$150-350k business model' endorsement is a headline. 'Too polished' feedback is actionable. Vision of community-building is inspiring.",
+    rating: 3,
+    ratingReason: "Multiple powerhouse moments. The '$150-350k business model' endorsement is a headline. 'Too polished' feedback is actionable. Vision of community-building is inspiring.",
     suggestedFormat: "short-form clip" as const,
   },
   {
@@ -95,8 +95,8 @@ const MOCK_SEGMENTS = [
     shortSummary: "You're bringing $100M brand strategy with zero revenue",
     detailedExplanation: "Gary delivers a reality check on sporting event activations: 'You're bringing a $100 million brand marketing strategy with zero revenue.' One TikTok with 40k views > every sporting event in the country. Sampling is good ONLY if you're filming it for content.",
     tags: "startup strategy, activations, TikTok, content first, sampling, reality check",
-    clipQualityScore: 10,
-    scoreReason: "Devastating and brilliant. '$100M strategy with zero revenue' is instantly quotable. The flip to 'one TikTok > every sporting event' is perfect. Multiple clip and quote opportunities.",
+    rating: 3,
+    ratingReason: "Devastating and brilliant. '$100M strategy with zero revenue' is instantly quotable. The flip to 'one TikTok > every sporting event' is perfect. Multiple clip and quote opportunities.",
     suggestedFormat: "short-form clip" as const,
   },
 ];
@@ -122,7 +122,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   // POST /api/analyze — Start a new analysis job
   app.post("/api/analyze", (req, res) => {
-    const { driveUrl, useMock } = req.body;
+    const { driveUrl, dateFilmed, useMock } = req.body;
 
     if (!driveUrl) {
       return res.status(400).json({ error: "driveUrl is required" });
@@ -134,7 +134,7 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Invalid Google Drive URL" });
     }
 
-    const job = storage.createJob(driveUrl);
+    const job = storage.createJob(driveUrl, dateFilmed);
 
     if (useMock) {
       // For testing: immediately return mock data
@@ -160,6 +160,7 @@ export async function registerRoutes(
     const response: any = {
       id: job.id,
       driveUrl: job.driveUrl,
+      dateFilmed: job.dateFilmed,
       status: job.status,
       statusMessage: job.statusMessage,
       createdAt: job.createdAt,
@@ -194,15 +195,16 @@ export async function registerRoutes(
       return res.status(404).json({ error: "No results available" });
     }
 
-    const segments = JSON.parse(job.result);
+    const parsed = JSON.parse(job.result);
+    const segments = Array.isArray(parsed) ? parsed : (parsed.segments || []);
     const headers = [
       "Start",
       "End",
       "Short Summary",
       "Detailed Explanation",
       "Tags",
-      "Clip Quality Score",
-      "Score Reason",
+      "Rating",
+      "Rating Reason",
       "Suggested Format",
     ];
 
@@ -215,8 +217,8 @@ export async function registerRoutes(
           `"${(seg.shortSummary || "").replace(/"/g, '""')}"`,
           `"${(seg.detailedExplanation || "").replace(/"/g, '""')}"`,
           `"${(seg.tags || "").replace(/"/g, '""')}"`,
-          seg.clipQualityScore,
-          `"${(seg.scoreReason || "").replace(/"/g, '""')}"`,
+          seg.rating,
+          `"${(seg.ratingReason || "").replace(/"/g, '""')}"`,
           `"${(seg.suggestedFormat || "").replace(/"/g, '""')}"`,
         ].join(","),
       );
