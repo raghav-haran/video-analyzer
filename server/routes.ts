@@ -1,10 +1,83 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { spawn } from "child_process";
+import { spawn, execSync, execFileSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
+
+// ClickUp integration constants
+const CLICKUP_LIST_ID = "901712538913";
+const CLICKUP_CUSTOM_FIELDS = {
+  videoEventName: "04008d34-2218-49d4-93af-5cad22946c0f",       // short_text
+  descriptionTimestamp: "05948b16-9312-4fd1-b335-05281443f612",  // short_text
+  dateFilmed: "40f56894-f0ac-42e3-a93f-3a1860cd9647",           // date (ms timestamp)
+  ratings: "d162e535-bf06-41cc-b40a-b8e9169cc3ff",               // short_text
+  fileLocation: "c91c79de-536d-46a7-a092-c3c48c5b71c5",         // short_text
+  tagsKeywords: "f5957548-bf3c-4ba7-8775-27ae5db08190",         // labels
+  loggingDate: "944000a4-2aba-434d-a4b6-8970dc918b23",          // date (ms timestamp)
+};
+
+// Predefined tag labels in ClickUp (id → label)
+const CLICKUP_TAG_OPTIONS: Record<string, string> = {
+  "3260ebb6-06a4-49db-8951-243b3179a274": "NFTs",
+  "52da4065-d027-4cbf-a5b1-fa7a39d9fad7": "Funny",
+  "bd8ba411-9635-4ba1-9cf9-bc66cea825c9": "College",
+  "79ec32f1-abe6-4003-ab58-40f80d404f4f": "B-Roll 🎥",
+  "b4ea6423-294d-4426-ad89-ea8f8787fa20": "Life Advice",
+  "4b6e9684-b879-47d3-8a27-229af5af6dac": "Predictions",
+  "86654f1f-8883-407c-8102-2e50e3278734": "Quick Quote",
+  "66a4c7f6-653e-48a6-9705-4219c140f182": "Motivational",
+  "dbd1f6f7-cea1-4a45-9cc7-3b5ac0b965f0": "Business talk",
+  "4f6a4aa1-3bbd-4728-a28e-1887aebbd066": "Company culture",
+  "a7bd3c06-c01b-4765-9a27-c53098e68bbb": "Random chit chat",
+  "51727dfd-42c5-413d-8768-5ae96c17a953": "12-1/2 Ingredients",
+  "4aa03932-bb30-4844-812e-ece8a64c8177": "VaynerMedia related",
+  "746e0bfe-16a5-48fa-96eb-a797c8a65474": "VeeFriends the brand",
+  "2c93eba8-079b-4aca-8e06-5b3fe84c7ec0": "Gary-Isms / Experiences",
+  "4eded567-19ed-4d26-9f29-0b7f65a9237b": "Storytime/History Lesson",
+};
+
+// Reverse map: label → id for quick lookup
+const TAG_LABEL_TO_ID: Record<string, string> = {};
+for (const [id, label] of Object.entries(CLICKUP_TAG_OPTIONS)) {
+  TAG_LABEL_TO_ID[label.toLowerCase()] = id;
+}
+
+function callExternalTool(sourceId: string, toolName: string, args: Record<string, any>): any {
+  const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
+  // Use execFileSync to avoid shell escaping issues with quotes/emojis
+  const result = execFileSync("external-tool", ["call", params], {
+    encoding: "utf-8",
+    timeout: 30000,
+  });
+  const parsed = JSON.parse(result.trim() || '{}');
+  if (parsed.error) {
+    throw new Error(`ClickUp API error: ${parsed.error}`);
+  }
+  return parsed;
+}
+
+function matchTagsToClickUp(segmentTags: string): string[] {
+  // Try to match segment tags to predefined ClickUp label IDs
+  const tags = segmentTags.split(",").map(t => t.trim().toLowerCase());
+  const matchedIds: string[] = [];
+  for (const tag of tags) {
+    // Direct match
+    if (TAG_LABEL_TO_ID[tag]) {
+      matchedIds.push(TAG_LABEL_TO_ID[tag]);
+      continue;
+    }
+    // Fuzzy match: check if any predefined label contains the tag or vice versa
+    for (const [label, id] of Object.entries(TAG_LABEL_TO_ID)) {
+      if (label.includes(tag) || tag.includes(label)) {
+        matchedIds.push(id);
+        break;
+      }
+    }
+  }
+  return [...new Set(matchedIds)]; // dedupe
+}
 // Use process.cwd() for resolving paths — works in both dev (ESM) and prod (CJS bundle)
 
 // Sample mock data for testing UI without processing
@@ -185,6 +258,133 @@ export async function registerRoutes(
     }
 
     res.json(response);
+  });
+
+  // POST /api/clickup/push — Push segments to ClickUp as tasks
+  app.post("/api/clickup/push", async (req, res) => {
+    try {
+      const { jobId, segmentIndices } = req.body;
+
+      if (!jobId) {
+        return res.status(400).json({ error: "jobId is required" });
+      }
+
+      const job = storage.getJob(jobId);
+      if (!job || !job.result) {
+        return res.status(404).json({ error: "Job not found or no results" });
+      }
+
+      const parsed = JSON.parse(job.result);
+      const allSegments = Array.isArray(parsed) ? parsed : (parsed.segments || []);
+
+      // If segmentIndices provided, push only those; otherwise push all
+      const segmentsToPush = segmentIndices
+        ? segmentIndices.map((i: number) => allSegments[i]).filter(Boolean)
+        : allSegments;
+
+      if (segmentsToPush.length === 0) {
+        return res.status(400).json({ error: "No segments to push" });
+      }
+
+      const results: Array<{ segment: string; taskId?: string; error?: string }> = [];
+
+      for (const seg of segmentsToPush) {
+        try {
+          // Build the description/timestamp field
+          const descTimestamp = `[${seg.start} – ${seg.end}] ${seg.detailedExplanation}`;
+
+          // Build rating string
+          const ratingStr = "🔥".repeat(Math.min(Math.max(seg.rating || 1, 1), 3));
+
+          // Step 1: Create the task
+          const createResult = callExternalTool("clickup__pipedream", "clickup-create-task", {
+            workspaceId: "9017366055",
+            spaceId: "90173833877",
+            name: seg.shortSummary,
+            listId: CLICKUP_LIST_ID,
+            status: "to do",
+            description: descTimestamp,
+          });
+
+          const taskId = createResult?.id;
+          if (!taskId) {
+            results.push({ segment: seg.shortSummary, error: "Failed to create task — no ID returned" });
+            continue;
+          }
+
+          // Step 2: Set custom fields one by one
+          const fieldsToSet: Array<{ fieldId: string; value: any }> = [
+            // Video/Event Name
+            { fieldId: CLICKUP_CUSTOM_FIELDS.videoEventName, value: job.eventName || "" },
+            // Description / Timestamp
+            { fieldId: CLICKUP_CUSTOM_FIELDS.descriptionTimestamp, value: descTimestamp },
+            // Ratings
+            { fieldId: CLICKUP_CUSTOM_FIELDS.ratings, value: ratingStr },
+            // File Location (drive URL)
+            { fieldId: CLICKUP_CUSTOM_FIELDS.fileLocation, value: job.driveUrl || "" },
+            // Logging Date (now, in ms)
+            { fieldId: CLICKUP_CUSTOM_FIELDS.loggingDate, value: Date.now().toString() },
+          ];
+
+          // Date Filmed (if provided)
+          if (job.dateFilmed) {
+            const dateMs = new Date(job.dateFilmed).getTime();
+            if (!isNaN(dateMs)) {
+              fieldsToSet.push({ fieldId: CLICKUP_CUSTOM_FIELDS.dateFilmed, value: dateMs.toString() });
+            }
+          }
+
+          // Tags / Keywords (match segment tags to ClickUp labels)
+          const matchedTagIds = matchTagsToClickUp(seg.tags || "");
+          if (matchedTagIds.length > 0) {
+            fieldsToSet.push({
+              fieldId: CLICKUP_CUSTOM_FIELDS.tagsKeywords,
+              value: matchedTagIds,
+            });
+          }
+
+          // Set each custom field
+          for (const field of fieldsToSet) {
+            try {
+              callExternalTool("clickup__pipedream", "clickup-update-task-custom-field", {
+                workspaceId: "9017366055",
+                spaceId: "90173833877",
+                listId: CLICKUP_LIST_ID,
+                taskId,
+                customFieldId: field.fieldId,
+                value: field.value,
+              });
+            } catch (fieldErr: any) {
+              const errMsg = fieldErr.stderr?.toString?.() || fieldErr.message || 'unknown error';
+              console.error(`[ClickUp] Failed to set field ${field.fieldId} on task ${taskId}:`, errMsg.slice(0, 300));
+            }
+          }
+
+          results.push({ segment: seg.shortSummary, taskId });
+        } catch (segErr: any) {
+          results.push({ segment: seg.shortSummary, error: segErr.message?.slice(0, 200) });
+        }
+      }
+
+      const succeeded = results.filter(r => r.taskId).length;
+      const failed = results.filter(r => r.error).length;
+
+      res.json({
+        message: `Pushed ${succeeded} of ${results.length} segments to ClickUp`,
+        succeeded,
+        failed,
+        results,
+      });
+    } catch (err: any) {
+      console.error("[ClickUp Push] Error:", err.message);
+      res.status(500).json({ error: err.message || "Failed to push to ClickUp" });
+    }
+  });
+
+  // GET /api/clickup/tags — Return available ClickUp tag labels for mapping
+  app.get("/api/clickup/tags", (_req, res) => {
+    const tags = Object.entries(CLICKUP_TAG_OPTIONS).map(([id, label]) => ({ id, label }));
+    res.json(tags);
   });
 
   // GET /api/jobs/:id/csv — Download results as CSV

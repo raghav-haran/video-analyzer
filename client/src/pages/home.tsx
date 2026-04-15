@@ -33,6 +33,9 @@ import {
   Quote as QuoteIcon,
   LayoutList,
   Calendar,
+  Upload,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import type { Segment, Quote } from "@shared/schema";
 
@@ -85,6 +88,7 @@ export default function Home() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<"segments" | "quotes">("segments");
+  const [pushResult, setPushResult] = useState<{ succeeded: number; failed: number; total: number } | null>(null);
   const { toast } = useToast();
 
   // Poll for job status
@@ -126,6 +130,8 @@ export default function Home() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/analyze", {
         driveUrl: "https://drive.google.com/file/d/MOCK_TEST_ID/view",
+        eventName: eventName || undefined,
+        dateFilmed: dateFilmed || undefined,
         useMock: true,
       });
       return res.json();
@@ -133,6 +139,29 @@ export default function Home() {
     onSuccess: (data: { jobId: number }) => {
       setJobId(data.jobId);
       queryClient.invalidateQueries({ queryKey: ["/api/jobs", data.jobId] });
+    },
+  });
+
+  // Push to ClickUp mutation
+  const clickupMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/clickup/push", { jobId });
+      return res.json();
+    },
+    onSuccess: (data: { succeeded: number; failed: number; results: any[] }) => {
+      setPushResult({ succeeded: data.succeeded, failed: data.failed, total: data.results.length });
+      toast({
+        title: data.failed === 0
+          ? `Pushed ${data.succeeded} moments to ClickUp`
+          : `Pushed ${data.succeeded} of ${data.results.length} (${data.failed} failed)`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to push to ClickUp",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -251,6 +280,7 @@ export default function Home() {
     setSortDir("desc");
     setExpandedRows(new Set());
     setActiveTab("segments");
+    setPushResult(null);
   };
 
   return (
@@ -542,7 +572,38 @@ export default function Home() {
                   ))}
               </Button>
 
-              <div className="ml-auto flex gap-2">
+              <div className="ml-auto flex items-center gap-2">
+                {pushResult && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {pushResult.failed === 0 ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                    )}
+                    {pushResult.succeeded}/{pushResult.total} pushed
+                  </span>
+                )}
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={pushResult ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => clickupMutation.mutate()}
+                      disabled={clickupMutation.isPending}
+                      data-testid="button-push-clickup"
+                    >
+                      {clickupMutation.isPending ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 mr-1.5" />
+                      )}
+                      {clickupMutation.isPending ? "Pushing..." : "Push to ClickUp"}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Create tasks in ClickUp for all segments</TooltipContent>
+                </Tooltip>
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
