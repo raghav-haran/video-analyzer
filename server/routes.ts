@@ -383,14 +383,38 @@ export async function registerRoutes(
         }
       }
 
-      for (const seg of segmentsToPush) {
+      // Helper: retry an external tool call up to 3 times with delay
+      async function callWithRetry(sourceId: string, toolName: string, args: Record<string, any>, retries = 3): Promise<any> {
+        for (let attempt = 0; attempt < retries; attempt++) {
+          try {
+            return await callExternalToolAsync(sourceId, toolName, args);
+          } catch (err: any) {
+            const isAuthError = err.message?.includes('expired') || err.message?.includes('auth') || err.message?.includes('401');
+            if (isAuthError && attempt < retries - 1) {
+              console.log(`[ClickUp] Auth error on ${toolName}, retrying in 3s (attempt ${attempt + 1}/${retries})...`);
+              await new Promise(r => setTimeout(r, 3000));
+              continue;
+            }
+            throw err;
+          }
+        }
+      }
+
+      for (let segIdx = 0; segIdx < segmentsToPush.length; segIdx++) {
+        const seg = segmentsToPush[segIdx];
         pushJob.current++;
+
+        // Pause every 3 segments to let frontend polling refresh credentials
+        if (segIdx > 0 && segIdx % 3 === 0) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+
         try {
           const descTimestamp = `[${seg.start} – ${seg.end}] ${seg.detailedExplanation}`;
           const ratingStr = "\u{1F525}".repeat(Math.min(Math.max(seg.rating || 1, 1), 3));
 
-          // Create the task
-          const createResult = await callExternalToolAsync("clickup__pipedream", "clickup-create-task", {
+          // Create the task (with retry)
+          const createResult = await callWithRetry("clickup__pipedream", "clickup-create-task", {
             workspaceId: "9017366055",
             spaceId: "90173833877",
             name: seg.shortSummary,
@@ -434,7 +458,7 @@ export async function registerRoutes(
 
           for (const field of fieldsToSet) {
             try {
-              await callExternalToolAsync("clickup__pipedream", "clickup-update-task-custom-field", {
+              await callWithRetry("clickup__pipedream", "clickup-update-task-custom-field", {
                 workspaceId: "9017366055",
                 spaceId: "90173833877",
                 listId: CLICKUP_LIST_ID,
