@@ -339,14 +339,22 @@ export async function registerRoutes(
             spaceId: "90173833877",
             listId: CLICKUP_LIST_ID,
           });
-          // Parse the response — may be a JSON string or object
+          // Parse the response — may be a JSON string, nested result, or object
           let fields = fieldsResult;
           if (typeof fields === "string") fields = JSON.parse(fields);
+          // Handle connector wrapper: { result: "...", ... }
+          if (fields?.result !== undefined) {
+            let inner = fields.result;
+            if (typeof inner === "string") inner = JSON.parse(inner);
+            fields = inner;
+          }
           if (fields?.fields) fields = fields.fields;
+          console.log(`[ClickUp] Fields response type: ${typeof fields}, isArray: ${Array.isArray(fields)}, length: ${Array.isArray(fields) ? fields.length : 'n/a'}`);
           if (Array.isArray(fields)) {
             const dropdownField = fields.find((f: any) => f.id === CLICKUP_CUSTOM_FIELDS.videoEventDropdown);
             if (dropdownField?.type_config?.options) {
               const eventNameLower = job.eventName.toLowerCase().trim();
+              console.log(`[ClickUp] Looking for "${eventNameLower}" in ${dropdownField.type_config.options.length} options: ${dropdownField.type_config.options.map((o: any) => `"${o.name}"`).join(", ")}`);
               const matchedOption = dropdownField.type_config.options.find(
                 (opt: any) => opt.name.toLowerCase().trim() === eventNameLower
               );
@@ -354,9 +362,13 @@ export async function registerRoutes(
                 dropdownOptionId = matchedOption.id;
                 console.log(`[ClickUp] Matched dropdown option: "${matchedOption.name}" (${matchedOption.id})`);
               } else {
-                console.log(`[ClickUp] No dropdown option found for "${job.eventName}". Available: ${dropdownField.type_config.options.map((o: any) => o.name).join(", ")}`);
+                console.log(`[ClickUp] No dropdown option found for "${job.eventName}".`);
               }
+            } else {
+              console.log(`[ClickUp] Dropdown field not found or has no options.`);
             }
+          } else {
+            console.log(`[ClickUp] Unexpected fields format:`, JSON.stringify(fields).slice(0, 300));
           }
         } catch (err: any) {
           console.error(`[ClickUp] Failed to fetch dropdown options:`, err.message?.slice(0, 200));
