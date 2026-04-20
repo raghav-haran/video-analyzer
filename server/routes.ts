@@ -701,8 +701,10 @@ function processVideo(jobId: number, driveUrl: string) {
         }
       } catch {}
       // Fallback: use stderr for a more helpful error message
-      const errMsg = stderrOutput.trim().split("\n").pop() || `exit code ${code}`;
-      storage.updateJobStatus(jobId, "error", `Processing failed: ${errMsg.slice(0, 300)}`);
+      // Take the last few meaningful lines (skip empty and HTML fragments)
+      const lines = stderrOutput.trim().split("\n").filter(l => l.trim().length > 3 && !l.trim().startsWith('<'));
+      const errMsg = lines.slice(-3).join(" | ") || `exit code ${code}`;
+      storage.updateJobStatus(jobId, "error", `Processing failed: ${errMsg.slice(0, 500)}`);
     }
 
     // Cleanup temp files

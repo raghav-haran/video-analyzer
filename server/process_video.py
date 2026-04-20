@@ -58,13 +58,30 @@ try:
     gdown.download(
         f"https://drive.google.com/uc?id={file_id}",
         video_path,
-        quiet=True,
+        quiet=False,
         fuzzy=True,
     )
-    if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
-        raise RuntimeError("Download failed or file too small")
+    if not os.path.exists(video_path):
+        raise RuntimeError("Download failed — file was not created. The Drive link may require sign-in or the file may not be shared publicly.")
+    fsize = os.path.getsize(video_path)
+    if fsize < 1000:
+        # Check if it's an HTML error page
+        try:
+            with open(video_path, 'r', errors='ignore') as f:
+                content = f.read(500)
+            if '<html' in content.lower() or '<!doctype' in content.lower():
+                raise RuntimeError(f"Google Drive returned an HTML page instead of the video. The file may not be publicly accessible or may require virus scan confirmation. First 200 chars: {content[:200]}")
+        except RuntimeError:
+            raise
+        except:
+            pass
+        raise RuntimeError(f"Download failed — file too small ({fsize} bytes). The Drive link may be invalid or the file may not be shared.")
+    print(f"Downloaded video: {fsize / (1024*1024):.1f} MB", file=sys.stderr)
+except RuntimeError as e:
+    update_status("error", str(e))
+    sys.exit(1)
 except Exception as e:
-    update_status("error", f"Failed to download video: {e}")
+    update_status("error", f"Failed to download video: {type(e).__name__}: {e}")
     sys.exit(1)
 
 # Get video duration
